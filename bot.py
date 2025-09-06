@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+from flask import Flask
 import vk_api, requests, os
 import tempfile
 
@@ -131,5 +132,20 @@ async def help_cmd(interaction: discord.Interaction):
     )
     await interaction.response.send_message(txt, ephemeral=True)
 
-# --------- ЗАПУСК БОТА ---------
-bot.run(DISCORD_TOKEN)
+# ---------- Flask ----------
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
+# ---------- Запуск ----------
+if __name__ == "__main__":
+    # Запускаем Flask в отдельном потоке
+    threading.Thread(target=run_flask).start()
+    # Запускаем бота
+    bot.run(DISCORD_TOKEN)
