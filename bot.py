@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from flask import Flask
+import threading
 import vk_api, requests, os
 import tempfile
 
