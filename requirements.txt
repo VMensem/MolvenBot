@@ -1,0 +1,5 @@
+discord
+vk_api
+requests
+os
+tempfile
