@@ -1,149 +1,138 @@
-
-
 # bot.py
 import os
-import threading
 import asyncio
+import threading
 import logging
-from typing import Optional
 
 import discord
-from discord import app_commands
+from discord import Intents
+from discord.ext import commands
 
-from flask import Flask
-
+import vk_api
 import requests
+
+# ---- Telegram (aiogram 3.x) ----
 from aiogram import Bot as TgBot, Dispatcher, types
 from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
+from aiogram.filters import Command
 
-# -------------------- Настройки --------------------
-# --------- Настройки ---------
-DISCORD_TOKEN   = "MTQxMzYwNzM0Mjc3NTQ2ODE3NA.G9B618.UQaioB7Awaq4okHNxwEPDBb8lNKu5k5p2NglVk"
-DISCORD_CHANNEL = 1413563583966613588
+# ---------- НАСТРОЙКИ ----------
+DISCORD_TOKEN   = "MTQxMzYwNzM0Mjc3NTQ2ODE3NA.G9B618.UQaioB7Awaq4okHNxwEPDBb8lNKu5k5p2NglVk"          # вставь свой НОВЫЙ токен
+DISCORD_CHANNEL = 1413563583966613588   # id канала (можно None)
 
 VK_TOKEN        = "vk1.a.5R6wTw5b0WL79JtWYJgYsgQVqrgzS27dLpQqjs40UauxEBq-hEFTeMylKLmwhlbuiJOZ183qe-d-pEIyNpo4s235x_TwmVdGjYgTkw2MO3NBGR-jKbTS4dh73Ny1nisTePTMW7FM2UCtEQaDet0YA-7dXqSP6zKDldrw7AzBmqT_oK0HK99RYrqmvAJkn9JBO3c4qmBILx_e1udBfWM52w"
-VK_GROUP_ID     = 219539602
+VK_GROUP_ID     = 219539602  # id группы ВКонтакте (без минуса)
 
-TG_TOKEN        = "8462639289:AAGKFtkNIEzdd_-48_MjelPcdr97GJgtGno"
-TG_CHANNEL      = "@MolvenRP"
-CREATOR_ID      = 1951437901
-# ----------------------------------------------------
+TG_TOKEN        = "8462639289:AAGKFtkNIEzdd_-48_MjelPcdr97GJgtGno"          # токен бота Telegram
+TG_CHANNEL      = "@MolvenRP"             # username канала Telegram (с @)
+CREATOR_ID      = 1951437901            # только этот id может писать комманды в ТГ
 
-logging.basicConfig(level=logging.INFO)
-
-# -------------------- Discord --------------------
-intents = discord.Intents.default()
-bot = discord.Client(intents=intents)
-tree = app_commands.CommandTree(bot)
+# ---------- Discord ----------
+intents = Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix="/", intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f"Discord bot logged in as {bot.user}")
+    print(f"Discord: {bot.user} запущен")
     try:
-        synced = await tree.sync()
-        print(f"Synced {len(synced)} commands")
+        synced = await bot.tree.sync()
+        print(f"Slash команд синхронизировано: {len(synced)}")
     except Exception as e:
-        print("Sync error:", e)
+        print(f"Sync error: {e}")
 
+# ---- Discord команды ----
+@bot.tree.command(name="ping", description="Проверка бота")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message("Pong!", ephemeral=True)
 
-@tree.command(name="news", description="Опубликовать новость в Discord + VK + Telegram")
-@app_commands.describe(text="Текст новости")
+@bot.tree.command(name="news", description="Опубликовать новость в Discord + VK + Telegram")
 async def news(interaction: discord.Interaction, text: str):
+    await interaction.response.defer()
+
+    # ---- Discord пост ----
+    channel = bot.get_channel(DISCORD_CHANNEL) if DISCORD_CHANNEL else interaction.channel
+    if channel:
+        await channel.send(f"📢 Molven RolePlay:\n{text}")
+
+    # ---- ВКонтакте ----
     try:
-        await interaction.response.send_message("📤 Публикую…", ephemeral=True)
-
-        # Discord
-        if DISCORD_CHANNEL:
-            channel = bot.get_channel(DISCORD_CHANNEL)
-            if channel:
-                await channel.send(text)
-
-        # VK
-        if VK_TOKEN and VK_GROUP_ID:
-            vk_url = "https://api.vk.com/method/wall.post"
-            params = {
-                "owner_id": f"-{VK_GROUP_ID}",
-                "from_group": 1,
-                "message": text,
-                "access_token": VK_TOKEN,
-                "v": "5.199",
-            }
-            r = requests.post(vk_url, params=params)
-            print("VK post:", r.text)
-
-        # Telegram
-        if TG_TOKEN and TG_CHANNEL:
-            url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-            payload = {"chat_id": TG_CHANNEL, "text": text, "parse_mode": "HTML"}
-            r = requests.post(url, json=payload)
-            print("TG post:", r.text)
-
+        vk = vk_api.VkApi(token=VK_TOKEN)
+        vk.method("wall.post", {
+            "owner_id": -VK_GROUP_ID,
+            "from_group": 1,
+            "message": text
+        })
+        print("Новость отправлена в VK")
     except Exception as e:
-        await interaction.followup.send(f"Ошибка публикации: {e}", ephemeral=True)
+        print("VK ошибка:", e)
 
-# -------------------- Telegram --------------------
-tg_bot = TgBot(TG_TOKEN, parse_mode=ParseMode.HTML)
+    # ---- Telegram ----
+    try:
+        await tg_bot.send_message(chat_id=TG_CHANNEL, text=f"📢 Molven RolePlay:\n{text}")
+        print("Новость отправлена в Telegram")
+    except Exception as e:
+        print("TG ошибка:", e)
+
+    await interaction.followup.send("Новость опубликована!")
+
+# ---------- Telegram ----------
+tg_bot = TgBot(
+    TG_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
 dp = Dispatcher()
 
-@dp.message(commands=["start"])
-async def cmd_start(message: types.Message):
+@dp.message(Command("start"))
+async def tg_start(message: types.Message):
     if message.from_user.id != CREATOR_ID:
-        return await message.reply("⛔ Доступ запрещён")
-    await message.reply("✅ Бот готов публиковать. Используй команду /news <текст>")
+        return
+    await message.answer("Привет! Доступны команды: /news <текст>")
 
-@dp.message(commands=["news"])
-async def cmd_news(message: types.Message):
+@dp.message(Command("news"))
+async def tg_news(message: types.Message):
     if message.from_user.id != CREATOR_ID:
-        return await message.reply("⛔ Доступ запрещён")
-    text = message.text.split(" ", 1)
-    if len(text) < 2:
-        return await message.reply("Укажи текст: /news текст")
-    news_text = text[1]
+        return
+    text = message.text.partition(" ")[2].strip()
+    if not text:
+        await message.answer("Напиши текст после /news")
+        return
 
-    # постинг в канал
-    await tg_bot.send_message(chat_id=TG_CHANNEL, text=news_text)
-
-    # параллельно Discord/VK
+    # Discord
     if DISCORD_CHANNEL:
         channel = bot.get_channel(DISCORD_CHANNEL)
         if channel:
-            await channel.send(news_text)
+            await channel.send(f"📢 Molven RolePlay:\n{text}")
 
-    if VK_TOKEN and VK_GROUP_ID:
-        vk_url = "https://api.vk.com/method/wall.post"
-        params = {
-            "owner_id": f"-{VK_GROUP_ID}",
-            "from_group": 1,
-            "message": news_text,
-            "access_token": VK_TOKEN,
-            "v": "5.199",
-        }
-        r = requests.post(vk_url, params=params)
-        print("VK post:", r.text)
+    # VK
+    try:
+        vk = vk_api.VkApi(token=VK_TOKEN)
+        vk.method("wall.post", {"owner_id": -VK_GROUP_ID, "from_group": 1, "message": text})
+    except Exception as e:
+        print("VK ошибка:", e)
 
-    await message.reply("📤 Опубликовано")
+    # Telegram канал
+    await tg_bot.send_message(chat_id=TG_CHANNEL, text=f"📢 Molven RolePlay:\n{text}")
+    await message.answer("Новость отправлена во все каналы")
 
-async def run_telegram():
-    await dp.start_polling(tg_bot)
-
-# -------------------- Flask для Render --------------------
+# ---------- Flask (для Render, ping) ----------
+from flask import Flask
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Bot is alive!"
+    return "Bot is running!"
 
 def run_flask():
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# -------------------- Запуск --------------------
+# ---------- Запуск ----------
+async def run_telegram():
+    await dp.start_polling(tg_bot)
+
 if __name__ == "__main__":
-    # Запуск Flask в отдельном потоке
-    threading.Thread(target=run_flask).start()
-
-    # Telegram (отдельная асинка в потоке)
-    threading.Thread(target=lambda: asyncio.run(run_telegram())).start()
-
-    # Discord
+    threading.Thread(target=run_flask).start()      # Flask web
+    threading.Thread(target=lambda: asyncio.run(run_telegram())).start()  # Telegram
     bot.run(DISCORD_TOKEN)
