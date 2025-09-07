@@ -1,13 +1,15 @@
-import os
-import threading
-import asyncio
 import discord
 from discord.ext import commands
+import vk_api
+import aiohttp
+import asyncio
+from aiogram import Bot as TgBot
+from aiogram.types import InputFile
+import threading
 from flask import Flask
-import requests
-from aiogram import Bot as TgBot, Dispatcher, types
+import os
 
-# -------------------- Конфигурация --------------------
+# ------------------ Настройки ------------------
 DISCORD_TOKEN   = "MTQxMzYwNzM0Mjc3NTQ2ODE3NA.G9B618.UQaioB7Awaq4okHNxwEPDBb8lNKu5k5p2NglVk"
 DISCORD_CHANNEL = 1413563583966613588
 
@@ -17,90 +19,81 @@ VK_GROUP_ID     = 219539602
 TG_TOKEN        = "8462639289:AAGKFtkNIEzdd_-48_MjelPcdr97GJgtGno"
 TG_CHANNEL      = "@MolvenRP"
 
-CREATOR_ID = 1951437901  # ID в Telegram, которому доступны команды
+# ------------------ Discord ------------------
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix="/", intents=intents)
 
-# -------------------- Flask --------------------
+# ------------------ VK ------------------
+vk_session = vk_api.VkApi(token=VK_TOKEN)
+vk = vk_session.get_api()
+
+# ------------------ Telegram ------------------
+tg_bot = TgBot(token=TG_TOKEN)
+
+# ------------------ Flask ------------------
 app = Flask(__name__)
 @app.route("/")
 def home():
     return "Bot is running!"
-
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
 
-# -------------------- Discord --------------------
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-async def publish_all(text: str, images: list = None):
-    # 1️⃣ Discord
+# ------------------ Функции публикации ------------------
+async def post_to_services(text, images=None):
+    # Discord
     channel = bot.get_channel(DISCORD_CHANNEL)
     if channel:
-        files = []
         if images:
-            for i, url in enumerate(images[:5]):
-                try:
-                    r = requests.get(url)
-                    r.raise_for_status()
-                    files.append(discord.File(fp=io.BytesIO(r.content), filename=f"image{i}.png"))
-                except:
-                    continue
-        await channel.send(content=text, files=files if files else None)
+            files = [discord.File(img) for img in images[:5]]
+            await channel.send(content=text, files=files)
+        else:
+            await channel.send(content=text)
+    # VK
+    try:
+        attachments = []
+        if images:
+            upload = vk_api.VkUpload(vk)
+            for img_url in images[:5]:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(img_url) as resp:
+                        data = await resp.read()
+                        with open("temp.jpg", "wb") as f:
+                            f.write(data)
+                        photo = upload.photo_wall("temp.jpg")[0]
+                        attachments.append(f"photo{photo['owner_id']}_{photo['id']}")
+            os.remove("temp.jpg")
+        vk.wall.post(owner_id=-VK_GROUP_ID, message=text, attachments=",".join(attachments))
+    except Exception as e:
+        print("VK post error:", e)
+    # Telegram
+    try:
+        if images:
+            media = [InputFile(img) for img in images[:5]]
+            for f in media:
+                await tg_bot.send_photo(chat_id=TG_CHANNEL, photo=f, caption=text)
+        else:
+            await tg_bot.send_message(chat_id=TG_CHANNEL, text=text)
+    except Exception as e:
+        print("Telegram post error:", e)
 
-    # 2️⃣ VK
-    if VK_TOKEN and VK_GROUP_ID:
-        vk_api_url = f"https://api.vk.com/method/wall.post"
-        data = {"owner_id": f"-{VK_GROUP_ID}", "message": text, "access_token": VK_TOKEN, "v": "5.131"}
-        requests.post(vk_api_url, data=data)
+# ------------------ Discord команды ------------------
+@bot.command()
+async def news(ctx, *, text):
+    await post_to_services(text)
+    await ctx.send("✅")
 
-    # 3️⃣ Telegram
-    if TG_TOKEN and TG_CHANNEL:
-        url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": TG_CHANNEL, "text": text})
-
-# Discord команды
-@bot.tree.command(name="news", description="Опубликовать новость")
-async def news(interaction: discord.Interaction, text: str):
-    await publish_all(text)
-    await interaction.response.send_message("✅", ephemeral=True)
-
-@bot.tree.command(name="text", description="Отправить текст в Discord канал")
-async def text(interaction: discord.Interaction, text: str):
+@bot.command()
+async def text(ctx, *, text):
     channel = bot.get_channel(DISCORD_CHANNEL)
     if channel:
         await channel.send(text)
-        await interaction.response.send_message("✅", ephemeral=True)
+    await ctx.send("✅")
 
-# -------------------- Telegram --------------------
-tg_bot = TgBot(token=TG_TOKEN)
-dp = Dispatcher()
-
-@dp.message()
-async def start(message: types.Message):
-    if message.from_user.id != CREATOR_ID:
-        return
-    if message.text.startswith("/start"):
-        await message.reply("Привет! Используй /news чтобы отправить новость.")
-
-@dp.message()
-async def telegram_news(message: types.Message):
-    if message.from_user.id != CREATOR_ID:
-        return
-    if message.text.startswith("/news"):
-        text = message.text.replace("/news", "").strip()
-        if text:
-            await publish_all(text)
-            await message.reply("✅")
-
-# -------------------- Запуск --------------------
-async def main():
-    tg_task = asyncio.create_task(dp.start_polling(tg_bot, skip_updates=True))
-    discord_task = asyncio.create_task(bot.start(DISCORD_TOKEN))
-    await asyncio.gather(tg_task, discord_task)
-
+# ------------------ Запуск ------------------
 if __name__ == "__main__":
-    import io
+    # Flask
     threading.Thread(target=run_flask, daemon=True).start()
-    asyncio.run(main())
+    # Discord
+    bot.run(DISCORD_TOKEN)
