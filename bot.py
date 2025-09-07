@@ -5,9 +5,10 @@ import threading, os, tempfile, requests
 import vk_api
 from telegram import Bot, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from typing import List, Optional
+from typing import Optional
+import os.path
 
-# --------- НАСТРОЙКИ (твоё) ---------
+# --------- НАСТРОЙКИ ---------
 DISCORD_TOKEN   = "MTQxMzYwNzM0Mjc3NTQ2ODE3NA.G9B618.UQaioB7Awaq4okHNxwEPDBb8lNKu5k5p2NglVk"
 DISCORD_CHANNEL = 1413563583966613588   # id канала Discord
 
@@ -62,30 +63,38 @@ async def on_ready():
     await bot.tree.sync()
     print(f"{bot.user} готов! Slash-команды синхронизированы.")
 
-# --------- /news для Discord ---------
+# --------- /news для Discord (до 5 картинок) ---------
 @bot.tree.command(name="news", description="Опубликовать новость в Discord + VK + Telegram")
 @discord.app_commands.describe(
     text="Текст новости",
-    images="Прикреплённые файлы (jpg/png), до 5"
+    image1="Первая картинка (опционально)",
+    image2="Вторая картинка (опционально)",
+    image3="Третья картинка (опционально)",
+    image4="Четвёртая картинка (опционально)",
+    image5="Пятая картинка (опционально)"
 )
-async def news(interaction: discord.Interaction, text: str, images: Optional[List[discord.Attachment]] = None):
+async def news(
+    interaction: discord.Interaction,
+    text: str,
+    image1: Optional[discord.Attachment] = None,
+    image2: Optional[discord.Attachment] = None,
+    image3: Optional[discord.Attachment] = None,
+    image4: Optional[discord.Attachment] = None,
+    image5: Optional[discord.Attachment] = None
+):
     await interaction.response.defer()
-
+    images = [img for img in [image1, image2, image3, image4, image5] if img]
     files = []
     vk_attachments = []
 
-    if images:
-        if len(images) > 5:
-            await interaction.followup.send("Можно прикрепить максимум 5 изображений.", ephemeral=True)
-            return
-        for image in images:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(image.filename)[1]) as tmp:
-                fp = tmp.name
-                await image.save(fp)
-                files.append(fp)
-                vk_photo = upload_photo_to_vk(fp)
-                if vk_photo:
-                    vk_attachments.append(vk_photo)
+    for image in images:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(image.filename)[1]) as tmp:
+            fp = tmp.name
+            await image.save(fp)
+            files.append(fp)
+            vk_photo = upload_photo_to_vk(fp)
+            if vk_photo:
+                vk_attachments.append(vk_photo)
 
     # Discord
     channel = bot.get_channel(DISCORD_CHANNEL) or interaction.channel
@@ -116,7 +125,7 @@ async def news(interaction: discord.Interaction, text: str, images: Optional[Lis
 @discord.app_commands.describe(content="Текст сообщения")
 async def text_command(interaction: discord.Interaction, content: str):
     await interaction.response.send_message(content)
-    send_to_telegram(content)  # отправка в Telegram
+    send_to_telegram(content)
 
 # --------- /help для Discord ---------
 @bot.tree.command(name="help", description="Список команд бота")
