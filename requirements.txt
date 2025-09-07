@@ -2,3 +2,4 @@ discord
 vk_api
 requests
 flask
+python-telegram-bot
