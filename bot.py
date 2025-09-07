@@ -3,8 +3,6 @@ from discord.ext import commands
 from flask import Flask
 import threading, os, tempfile, requests
 import vk_api
-from telegram import Bot, Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from typing import Optional
 
 # --------- НАСТРОЙКИ ---------
@@ -14,10 +12,8 @@ DISCORD_CHANNEL = 1413563583966613588   # id канала Discord
 VK_TOKEN        = "vk1.a.5R6wTw5b0WL79JtWYJgYsgQVqrgzS27dLpQqjs40UauxEBq-hEFTeMylKLmwhlbuiJOZ183qe-d-pEIyNpo4s235x_TwmVdGjYgTkw2MO3NBGR-jKbTS4dh73Ny1nisTePTMW7FM2UCtEQaDet0YA-7dXqSP6zKDldrw7AzBmqT_oK0HK99RYrqmvAJkn9JBO3c4qmBILx_e1udBfWM52w"
 VK_GROUP_ID     = 219539602  # id группы ВКонтакте (без минуса)
 
-TG_TOKEN        = "8462639289:AAGKFtkNIEzdd_-48_MjelPcdr97GJgtGno"
-TG_CHANNEL      = "@MolvenRP"  # username канала Telegram (с @)
-
-CREATOR_ID      = 1951437901  # только этот пользователь может использовать команды TG
+TG_TOKEN        = "8462639289:AAGKFtkNIEzdd_-48_MjelPcdr97GJgtGno"   # токен бота, который является админом канала
+TG_CHANNEL      = "@MolvenRP"  # username канала
 
 # --------- ИНИЦИАЛИЗАЦИЯ ---------
 intents = discord.Intents.default()
@@ -28,6 +24,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 vk_session = vk_api.VkApi(token=VK_TOKEN)
 vk = vk_session.get_api()
 
+from telegram import Bot
 tg_bot = Bot(token=TG_TOKEN)
 
 # --------- ХЕЛПЕР ДЛЯ VK ---------
@@ -47,7 +44,7 @@ def upload_photo_to_vk(fp: str) -> str:
         print("Ошибка загрузки фото в VK:", e)
         return None
 
-# --------- ХЕЛПЕР ДЛЯ TELEGRAM ---------
+# --------- ХЕЛПЕР ДЛЯ Telegram канала ---------
 def send_to_telegram(text: str, files: list = None):
     try:
         if files:
@@ -139,47 +136,6 @@ async def help_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(txt, ephemeral=True)
     send_to_telegram(txt)
 
-# --------- Проверка пользователя для TG ---------
-def tg_check_user(user_id: int) -> bool:
-    return user_id == CREATOR_ID
-
-# --------- Telegram команды ---------
-async def tg_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not tg_check_user(update.effective_user.id):
-        await update.message.reply_text("❌ Только владелец может использовать эту команду.")
-        return
-    text = " ".join(context.args) or "Текст новости"
-    send_to_telegram(text)
-    await update.message.reply_text("Новость отправлена ✅")
-
-async def tg_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not tg_check_user(update.effective_user.id):
-        await update.message.reply_text("❌ Только владелец может использовать эту команду.")
-        return
-    text = " ".join(context.args) or "Текст"
-    send_to_telegram(text)
-    await update.message.reply_text("Текст отправлен ✅")
-
-async def tg_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not tg_check_user(update.effective_user.id):
-        await update.message.reply_text("❌ Только владелец может использовать эту команду.")
-        return
-    txt = (
-        "/news – отправить текст новости\n"
-        "/text – отправить текст\n"
-        "/help – показать справку"
-    )
-    send_to_telegram(txt)
-    await update.message.reply_text(txt)
-
-tg_app = ApplicationBuilder().token(TG_TOKEN).build()
-tg_app.add_handler(CommandHandler("news", tg_news))
-tg_app.add_handler(CommandHandler("text", tg_text))
-tg_app.add_handler(CommandHandler("help", tg_help))
-
-def run_telegram():
-    tg_app.run_polling()
-
 # --------- Flask для Render ----------
 app = Flask(__name__)
 @app.route("/")
@@ -193,5 +149,4 @@ def run_flask():
 # --------- Запуск всего ---------
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()     # Flask
-    threading.Thread(target=run_telegram).start()  # Telegram
     bot.run(DISCORD_TOKEN)                         # Discord
