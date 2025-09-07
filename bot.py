@@ -14,7 +14,6 @@ VK_GROUP_ID     = 219539602  # id группы ВКонтакте (без мин
 
 TG_TOKEN        = "8462639289:AAGKFtkNIEzdd_-48_MjelPcdr97GJgtGno"          # токен бота Telegram
 TG_CHANNEL      = "@MolvenRP"             # username канала Telegram (с @)
-
 # --------- ИНИЦИАЛИЗАЦИЯ ---------
 intents = discord.Intents.default()
 intents.guilds = True
