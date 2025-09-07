@@ -90,7 +90,6 @@ async def start_cmd(message: Message):
 # ---------------- Commands ----------------
 @bot.tree.command(name="news", description="Опубликовать новость в Discord + VK + Telegram")
 @app_commands.describe(text="Текст новости", images="Ссылки на фото через пробел")
-)
 async def news(interaction: discord.Interaction, text: str, images: str = None):
     await interaction.response.defer()
     imgs = images.split() if images else []
