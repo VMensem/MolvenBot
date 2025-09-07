@@ -95,4 +95,23 @@ async def cmd_start(message: Message):
 async def cmd_news(message: Message):
     if message.from_user.id != CREATOR_ID:
         return
-    text =
+    text = message.text.replace("/news", "").strip()
+    if text:
+        # Отправка в Discord
+        channel = bot.get_channel(DISCORD_CHANNEL)
+        if channel:
+            await channel.send(text)
+        # VK
+        post_vk(text)
+        # TG
+        await send_telegram(text)
+        await message.answer("✅")
+
+# ----------------- Запуск -----------------
+if __name__ == "__main__":
+    # Flask
+    threading.Thread(target=run_flask, daemon=True).start()
+    # Telegram
+    threading.Thread(target=lambda: asyncio.run(dp.start_polling(tg_bot, handle_signals=False)), daemon=True).start()
+    # Discord
+    bot.run(DISCORD_TOKEN)
