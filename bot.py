@@ -100,7 +100,6 @@ async def news(interaction: discord.Interaction, text: str, images: str = None):
 
 @bot.tree.command(name="text", description="Отправить текст только в Discord")
 @app_commands.describe(text="Текст для Discord", images="Ссылки на фото через пробел")
-)
 async def text(interaction: discord.Interaction, text: str, images: str = None):
     await interaction.response.defer()
     imgs = images.split() if images else []
