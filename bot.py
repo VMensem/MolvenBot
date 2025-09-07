@@ -37,7 +37,7 @@ async def post_to_services(text, images: list[str] = []):
                 async with session.get(url) as resp:
                     if resp.status == 200:
                         data = await resp.read()
-                        files.append(discord.File(fp=io.BytesIO(data), filename=os.path.basename(url))))
+                        files.append(discord.File(fp=io.BytesIO(data), filename=os.path.basename(url)))
         await discord_channel.send(content=text, files=files if files else None)
 
     # -------- VK --------
