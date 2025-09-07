@@ -1,21 +1,17 @@
 # bot.py
-import os
-import asyncio
-import threading
-import logging
-
+import os, asyncio, threading, logging, requests
 import discord
 from discord import Intents
 from discord.ext import commands
-
 import vk_api
-import requests
 
 # ---- Telegram (aiogram 3.x) ----
 from aiogram import Bot as TgBot, Dispatcher, types
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
+
+from flask import Flask
 
 # ---------- НАСТРОЙКИ ----------
 DISCORD_TOKEN   = "MTQxMzYwNzM0Mjc3NTQ2ODE3NA.G9B618.UQaioB7Awaq4okHNxwEPDBb8lNKu5k5p2NglVk"          # вставь свой НОВЫЙ токен
@@ -37,89 +33,84 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 async def on_ready():
     print(f"Discord: {bot.user} запущен")
     try:
-        synced = await bot.tree.sync()
-        print(f"Slash команд синхронизировано: {len(synced)}")
+        await bot.tree.sync()
     except Exception as e:
         print(f"Sync error: {e}")
 
-# ---- Discord команды ----
 @bot.tree.command(name="ping", description="Проверка бота")
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message("Pong!", ephemeral=True)
 
-@bot.tree.command(name="news", description="Опубликовать новость в Discord + VK + Telegram")
+@bot.tree.command(name="news", description="Опубликовать новость (до 5 фото через пробел)")
 async def news(interaction: discord.Interaction, text: str):
     await interaction.response.defer()
-
-    # ---- Discord пост ----
-    channel = bot.get_channel(DISCORD_CHANNEL) if DISCORD_CHANNEL else interaction.channel
-    if channel:
-        await channel.send(f"📢 Molven RolePlay:\n{text}")
-
-    # ---- ВКонтакте ----
-    try:
-        vk = vk_api.VkApi(token=VK_TOKEN)
-        vk.method("wall.post", {
-            "owner_id": -VK_GROUP_ID,
-            "from_group": 1,
-            "message": text
-        })
-        print("Новость отправлена в VK")
-    except Exception as e:
-        print("VK ошибка:", e)
-
-    # ---- Telegram ----
-    try:
-        await tg_bot.send_message(chat_id=TG_CHANNEL, text=f"📢 Molven RolePlay:\n{text}")
-        print("Новость отправлена в Telegram")
-    except Exception as e:
-        print("TG ошибка:", e)
-
-    await interaction.followup.send("Новость опубликована!")
+    await publish_everywhere(text)
+    await interaction.followup.send("✅")
 
 # ---------- Telegram ----------
-tg_bot = TgBot(
-    TG_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
+tg_bot = TgBot(TG_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
 @dp.message(Command("start"))
 async def tg_start(message: types.Message):
     if message.from_user.id != CREATOR_ID:
         return
-    await message.answer("Привет! Доступны команды: /news <текст>")
+    await message.answer("Привет! Отправь /news <текст> [url1 url2 ...] (до 5 фото)")
 
 @dp.message(Command("news"))
 async def tg_news(message: types.Message):
     if message.from_user.id != CREATOR_ID:
         return
-    text = message.text.partition(" ")[2].strip()
-    if not text:
+    args = message.text.split()
+    if len(args) < 2:
         await message.answer("Напиши текст после /news")
         return
+    # текст до первого http
+    text_parts, photo_urls = [], []
+    for a in args[1:]:
+        if a.lower().startswith("http") and len(photo_urls) < 5:
+            photo_urls.append(a)
+        else:
+            text_parts.append(a)
+    text = " ".join(text_parts)
+    await publish_everywhere(text, photo_urls)
+    await message.answer("✅")
+
+# ---------- Публикация ----------
+async def publish_everywhere(text: str, photo_urls=None):
+    photo_urls = photo_urls or []
 
     # Discord
     if DISCORD_CHANNEL:
         channel = bot.get_channel(DISCORD_CHANNEL)
         if channel:
-            await channel.send(f"📢 Molven RolePlay:\n{text}")
+            if photo_urls:
+                files = [discord.File(fp=requests.get(u, stream=True).raw, filename=f"img{i}.jpg")
+                         for i, u in enumerate(photo_urls)]
+                await channel.send(content=text, files=files)
+            else:
+                await channel.send(text)
 
-    # VK
+    # ВКонтакте
     try:
         vk = vk_api.VkApi(token=VK_TOKEN)
         vk.method("wall.post", {"owner_id": -VK_GROUP_ID, "from_group": 1, "message": text})
     except Exception as e:
         print("VK ошибка:", e)
 
-    # Telegram канал
-    await tg_bot.send_message(chat_id=TG_CHANNEL, text=f"📢 Molven RolePlay:\n{text}")
-    await message.answer("Новость отправлена во все каналы")
+    # Telegram
+    try:
+        if photo_urls:
+            media = [types.InputMediaPhoto(media=u, caption=text if i == 0 else "")
+                     for i, u in enumerate(photo_urls)]
+            await tg_bot.send_media_group(chat_id=TG_CHANNEL, media=media)
+        else:
+            await tg_bot.send_message(chat_id=TG_CHANNEL, text=text)
+    except Exception as e:
+        print("TG ошибка:", e)
 
-# ---------- Flask (для Render, ping) ----------
-from flask import Flask
+# ---------- Flask (для ping) ----------
 app = Flask(__name__)
-
 @app.route("/")
 def home():
     return "Bot is running!"
@@ -128,11 +119,13 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# ---------- Запуск ----------
+# ---------- Telegram loop без signal ----------
 async def run_telegram():
-    await dp.start_polling(tg_bot)
+    # start_polling с handle_signals=False убирает проблему set_wakeup_fd
+    await dp.start_polling(tg_bot, handle_signals=False)
 
+# ---------- MAIN ----------
 if __name__ == "__main__":
-    threading.Thread(target=run_flask).start()      # Flask web
-    threading.Thread(target=lambda: asyncio.run(run_telegram())).start()  # Telegram
+    threading.Thread(target=run_flask, daemon=True).start()
+    threading.Thread(target=lambda: asyncio.run(run_telegram()), daemon=True).start()
     bot.run(DISCORD_TOKEN)
