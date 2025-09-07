@@ -3,3 +3,4 @@ vk_api
 requests
 flask
 aiogram
+aiohttp
