@@ -6,7 +6,6 @@ import vk_api
 from telegram import Bot, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from typing import Optional
-import os.path
 
 # --------- НАСТРОЙКИ ---------
 DISCORD_TOKEN   = "MTQxMzYwNzM0Mjc3NTQ2ODE3NA.G9B618.UQaioB7Awaq4okHNxwEPDBb8lNKu5k5p2NglVk"
@@ -17,6 +16,8 @@ VK_GROUP_ID     = 219539602  # id группы ВКонтакте (без мин
 
 TG_TOKEN        = "8462639289:AAGKFtkNIEzdd_-48_MjelPcdr97GJgtGno"
 TG_CHANNEL      = "@MolvenRP"  # username канала Telegram (с @)
+
+CREATOR_ID      = 1951437901  # только этот пользователь может использовать команды TG
 
 # --------- ИНИЦИАЛИЗАЦИЯ ---------
 intents = discord.Intents.default()
@@ -138,18 +139,31 @@ async def help_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(txt, ephemeral=True)
     send_to_telegram(txt)
 
+# --------- Проверка пользователя для TG ---------
+def tg_check_user(user_id: int) -> bool:
+    return user_id == CREATOR_ID
+
 # --------- Telegram команды ---------
 async def tg_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not tg_check_user(update.effective_user.id):
+        await update.message.reply_text("❌ Только владелец может использовать эту команду.")
+        return
     text = " ".join(context.args) or "Текст новости"
     send_to_telegram(text)
     await update.message.reply_text("Новость отправлена ✅")
 
 async def tg_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not tg_check_user(update.effective_user.id):
+        await update.message.reply_text("❌ Только владелец может использовать эту команду.")
+        return
     text = " ".join(context.args) or "Текст"
     send_to_telegram(text)
     await update.message.reply_text("Текст отправлен ✅")
 
 async def tg_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not tg_check_user(update.effective_user.id):
+        await update.message.reply_text("❌ Только владелец может использовать эту команду.")
+        return
     txt = (
         "/news – отправить текст новости\n"
         "/text – отправить текст\n"
