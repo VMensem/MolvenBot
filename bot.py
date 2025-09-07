@@ -14,15 +14,15 @@ from flask import Flask
 from io import BytesIO
 
 # ---------- НАСТРОЙКИ ----------
-DISCORD_TOKEN   = "<DISCORD_TOKEN>"
-DISCORD_CHANNEL = 123456789012345678
+DISCORD_TOKEN   = "MTQxMzYwNzM0Mjc3NTQ2ODE3NA.G9B618.UQaioB7Awaq4okHNxwEPDBb8lNKu5k5p2NglVk"          # вставь свой НОВЫЙ токен
+DISCORD_CHANNEL = 1413563583966613588   # id канала (можно None)
 
-VK_TOKEN        = "<VK_TOKEN>"
-VK_GROUP_ID     = 123456789
+VK_TOKEN        = "vk1.a.5R6wTw5b0WL79JtWYJgYsgQVqrgzS27dLpQqjs40UauxEBq-hEFTeMylKLmwhlbuiJOZ183qe-d-pEIyNpo4s235x_TwmVdGjYgTkw2MO3NBGR-jKbTS4dh73Ny1nisTePTMW7FM2UCtEQaDet0YA-7dXqSP6zKDldrw7AzBmqT_oK0HK99RYrqmvAJkn9JBO3c4qmBILx_e1udBfWM52w"
+VK_GROUP_ID     = 219539602  # id группы ВКонтакте (без минуса)
 
-TG_TOKEN        = "<TG_TOKEN>"
-TG_CHANNEL      = "@yourchannel"
-CREATOR_ID      = 1951437901
+TG_TOKEN        = "8462639289:AAGKFtkNIEzdd_-48_MjelPcdr97GJgtGno"          # токен бота Telegram
+TG_CHANNEL      = "@MolvenRP"             # username канала Telegram (с @)
+CREATOR_ID      = 1951437901            # только этот id может писать комманды в ТГ
 
 # ---------- Discord ----------
 intents = Intents.default()
