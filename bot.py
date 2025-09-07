@@ -1,10 +1,3 @@
-import discord
-from discord.ext import commands
-from flask import Flask
-import threading, os, tempfile, requests
-import vk_api
-from typing import Optional
-
 # --------- Настройки ---------
 DISCORD_TOKEN   = "MTQxMzYwNzM0Mjc3NTQ2ODE3NA.G9B618.UQaioB7Awaq4okHNxwEPDBb8lNKu5k5p2NglVk"
 DISCORD_CHANNEL = 1413563583966613588
@@ -16,190 +9,92 @@ TG_TOKEN        = "8462639289:AAGKFtkNIEzdd_-48_MjelPcdr97GJgtGno"
 TG_CHANNEL      = "@MolvenRP"
 CREATOR_ID      = 1951437901
 
-# --------- Discord ---------
-intents = discord.Intents.default()
-intents.guilds = True
-intents.messages = True
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-# --------- VK ---------
-vk_session = vk_api.VkApi(token=VK_TOKEN)
-vk = vk_session.get_api()
-
-# --------- Telegram Aiogram ---------
+# bot.py
 import asyncio
+import os
+
+# ---------- Discord ----------
+import discord
+from discord import app_commands
+
+# ---------- Telegram ----------
 from aiogram import Bot as TgBot, Dispatcher, types
 from aiogram.filters import Command
 
-tg_bot = TgBot(token=TG_TOKEN)
+# ===== Discord setup =====
+intents = discord.Intents.default()
+intents.message_content = True  # чтобы работали команды на текст
+
+class DiscordClient(discord.Client):
+    def __init__(self):
+        super().__init__(intents=intents)
+        self.tree = app_commands.CommandTree(self)
+
+    async def setup_hook(self):
+        # Регистрируем слэш-команды
+        @self.tree.command(name="news", description="Отправить новость в чат")
+        async def news_cmd(interaction: discord.Interaction, text: str):
+            await interaction.response.send_message(f"Новость: {text}", ephemeral=True)
+
+        @self.tree.command(name="text", description="Отправить текст в чат")
+        async def text_cmd(interaction: discord.Interaction, text: str):
+            await interaction.response.send_message(f"Текст: {text}", ephemeral=True)
+
+        await self.tree.sync()
+
+discord_client = DiscordClient()
+
+# ===== Telegram setup =====
+tg_bot = TgBot(token=TELEGRAM_TOKEN, parse_mode="HTML")
 dp = Dispatcher()
 
-# --------- VK Helper ---------
-def upload_photo_to_vk(fp: str) -> str:
-    try:
-        server = vk.photos.getWallUploadServer(group_id=VK_GROUP_ID)
-        with open(fp, "rb") as f:
-            r = requests.post(server['upload_url'], files={"photo": f}).json()
-        photo = vk.photos.saveWallPhoto(
-            group_id=VK_GROUP_ID,
-            photo=r['photo'],
-            server=r['server'],
-            hash=r['hash']
-        )[0]
-        return f"photo{photo['owner_id']}_{photo['id']}"
-    except Exception as e:
-        print("Ошибка загрузки фото в VK:", e)
-        return None
+async def set_tg_commands():
+    await tg_bot.set_my_commands([
+        types.BotCommand(command="start", description="Запустить бота"),
+        types.BotCommand(command="news", description="Отправить новость в канал"),
+        types.BotCommand(command="text", description="Отправить текст в канал"),
+    ])
 
-# --------- Telegram Helper ---------
-def send_to_telegram(text: str, files: list = None):
-    try:
-        if files:
-            for f in files:
-                tg_bot.send_photo(chat_id=TG_CHANNEL, photo=open(f, "rb"), caption=text)
-        else:
-            tg_bot.send_message(chat_id=TG_CHANNEL, text=text)
-    except Exception as e:
-        print("Ошибка публикации в Telegram:", e)
+def only_owner(handler):
+    async def wrapper(message: types.Message):
+        if message.from_user.id != CREATOR_ID:
+            return await message.answer("⛔ Доступ запрещён")
+        return await handler(message)
+    return wrapper
 
-# --------- Discord events ---------
-@bot.event
-async def on_ready():
-    await bot.tree.sync()
-    print(f"{bot.user} готов! Slash-команды синхронизированы.")
+@dp.message(Command("start"))
+@only_owner
+async def start_cmd(m: types.Message):
+    await m.answer("Бот готов. Доступны /news и /text")
 
-# --------- Discord Commands ---------
-@bot.tree.command(name="news", description="Опубликовать новость в Discord + VK + Telegram")
-@discord.app_commands.describe(
-    text="Текст новости",
-    image1="Первая картинка (опционально)",
-    image2="Вторая картинка (опционально)",
-    image3="Третья картинка (опционально)",
-    image4="Четвёртая картинка (опционально)",
-    image5="Пятая картинка (опционально)"
-)
-async def news(
-    interaction: discord.Interaction,
-    text: str,
-    image1: Optional[discord.Attachment] = None,
-    image2: Optional[discord.Attachment] = None,
-    image3: Optional[discord.Attachment] = None,
-    image4: Optional[discord.Attachment] = None,
-    image5: Optional[discord.Attachment] = None
-):
-    await interaction.response.defer()
-    images = [img for img in [image1, image2, image3, image4, image5] if img]
-    files = []
-    vk_attachments = []
+@dp.message(Command("news"))
+@only_owner
+async def news_cmd(m: types.Message):
+    text = m.get_args()
+    if not text:
+        return await m.answer("Укажи текст после /news")
+    await tg_bot.send_message(chat_id=TG_CHANNEL, text=text)
+    await m.answer("✅ Новость отправлена в канал")
 
-    for image in images:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(image.filename)[1]) as tmp:
-            fp = tmp.name
-            await image.save(fp)
-            files.append(fp)
-            vk_photo = upload_photo_to_vk(fp)
-            if vk_photo:
-                vk_attachments.append(vk_photo)
+@dp.message(Command("text"))
+@only_owner
+async def text_cmd(m: types.Message):
+    text = m.get_args()
+    if not text:
+        return await m.answer("Укажи текст после /text")
+    await tg_bot.send_message(chat_id=TG_CHANNEL, text=text)
+    await m.answer("✅ Текст отправлен в канал")
 
-    # Discord
-    channel = bot.get_channel(DISCORD_CHANNEL) or interaction.channel
-    discord_files = [discord.File(f, filename=os.path.basename(f)) for f in files]
-    await channel.send(text, files=discord_files)
+# ===== Unified runner =====
+async def main():
+    # Telegram: сразу выставляем команды
+    await set_tg_commands()
 
-    # VK
-    try:
-        vk.wall.post(
-            owner_id=f"-{VK_GROUP_ID}",
-            message=text,
-            attachments=",".join(vk_attachments) if vk_attachments else None
-        )
-    except Exception as e:
-        print("Ошибка публикации в VK:", e)
-
-    # Telegram
-    send_to_telegram(text, files)
-
-    # Удаляем временные файлы
-    for f in files:
-        os.remove(f)
-
-    await interaction.followup.send("Новость отправлена ✅", ephemeral=True)
-
-@bot.tree.command(name="text", description="Отправить обычный текст в чат")
-@discord.app_commands.describe(content="Текст сообщения")
-async def text_command(interaction: discord.Interaction, content: str):
-    await interaction.response.send_message(content)
-    send_to_telegram(content)
-
-@bot.tree.command(name="help", description="Список команд бота")
-async def help_cmd(interaction: discord.Interaction):
-    txt = (
-        "**/news** – отправить текст и/или до 5 картинок в Discord + VK + Telegram\n"
-        "**/text** – отправить обычный текст в чат\n"
-        "**/help** – показать эту справку"
+    # Запускаем Discord и Telegram вместе
+    await asyncio.gather(
+        discord_client.start(DISCORD_TOKEN),
+        dp.start_polling(tg_bot)
     )
-    await interaction.response.send_message(txt, ephemeral=True)
-    send_to_telegram(txt)
 
-# --------- Telegram Aiogram ---------
-def is_creator(user_id: int) -> bool:
-    return user_id == CREATOR_ID
-
-@dp.message(Command(commands=["start"]))
-async def tg_start(message: types.Message):
-    if not is_creator(message.from_user.id):
-        return
-    await message.answer("👋 Привет! Бот готов к публикации новостей.")
-
-@dp.message(Command(commands=["help"]))
-async def tg_help(message: types.Message):
-    if not is_creator(message.from_user.id):
-        return
-    txt = (
-        "/start – запуск бота\n"
-        "/news <текст> – отправить новость в канал\n"
-        "/text <текст> – отправить текст в канал\n"
-        "/help – показать справку"
-    )
-    await message.answer(txt)
-
-@dp.message(Command(commands=["news"]))
-async def tg_news(message: types.Message):
-    if not is_creator(message.from_user.id):
-        return
-    args = message.get_args()
-    if not args:
-        await message.answer("❌ Нужно указать текст новости после команды /news")
-        return
-    send_to_telegram(args)
-    await message.answer("✅ Новость отправлена в канал")
-
-@dp.message(Command(commands=["text"]))
-async def tg_text(message: types.Message):
-    if not is_creator(message.from_user.id):
-        return
-    args = message.get_args()
-    if not args:
-        await message.answer("❌ Нужно указать текст после команды /text")
-        return
-    send_to_telegram(args)
-    await message.answer("✅ Текст отправлен в канал")
-
-async def run_telegram():
-    await dp.start_polling(tg_bot)
-
-# --------- Flask для Render ----------
-app = Flask(__name__)
-@app.route("/")
-def home():
-    return "Bot is running!"
-
-def run_flask():
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
-
-# --------- Запуск всего ---------
 if __name__ == "__main__":
-    threading.Thread(target=run_flask).start()       # Flask
-    threading.Thread(target=lambda: asyncio.run(run_telegram())).start()  # Telegram
-    bot.run(DISCORD_TOKEN)                            # Discord
+    asyncio.run(main())
