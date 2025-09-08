@@ -25,7 +25,7 @@ logger = logging.getLogger("molven")
 
 # ---------------- TELEGRAM ---------------- #
 tg_bot = Bot(token=TG_TOKEN)
-tg_dp = Dispatcher(tg_bot)
+tg_dp = Dispatcher()
 
 async def send_to_telegram(text):
     try:
