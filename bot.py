@@ -1,94 +1,114 @@
-import asyncio
-import aiohttp
-import discord
-from discord.ext import commands
-import vk_api
-from vk_api import VkUpload
-import threading
 
-# ===================== Настройки =====================
-DISCORD_TOKEN   = "MTQxMzYwNzM0Mjc3NTQ2ODE3NA.G9B618.UQaioB7Awaq4okHNxwEPDBb8lNKu5k5p2NglVk"
 DISCORD_CHANNEL = 1413563583966613588
 
 VK_TOKEN        = "vk1.a.5R6wTw5b0WL79JtWYJgYsgQVqrgzS27dLpQqjs40UauxEBq-hEFTeMylKLmwhlbuiJOZ183qe-d-pEIyNpo4s235x_TwmVdGjYgTkw2MO3NBGR-jKbTS4dh73Ny1nisTePTMW7FM2UCtEQaDet0YA-7dXqSP6zKDldrw7AzBmqT_oK0HK99RYrqmvAJkn9JBO3c4qmBILx_e1udBfWM52w"
 VK_GROUP_ID     = 219539602
 
-TG_TOKEN        = "8462639289:AAGKFtkNIEzdd_-48_MjelPcdr97GJgtGno"
-TG_CHAT_ID      = -1003091449025  # твой чат в Telegram
+# bot.py
+"""
+Molven Project — публикация новости в Discord, Telegram и VK
+Discord slash-команды:
+  /news <текст> — публикация во все сервисы
+  /text <текст> — сообщение только в канал Discord
+"""
 
-# ===================== Discord =====================
+import asyncio
+import logging
+import discord
+from discord import app_commands
+from discord.ext import commands
+from aiogram import Bot as TgBot
+import vk_api
+
+# -----------------------------------------------------------
+# НАСТРОЙКИ
+# -----------------------------------------------------------
+
+DISCORD_TOKEN = "MTQxMzYwNzM0Mjc3NTQ2ODE3NA.G9B618.UQaioB7Awaq4okHNxwEPDBb8lNKu5k5p2NglVk"
+GUILD_ID = 123456789012345678        # ID твоего сервера
+
+TG_TOKEN = "8462639289:AAGKFtkNIEzdd_-48_MjelPcdr97GJgtGno"
+TG_CHAT_ID = -1003091449025               # чат/канал для новостей
+
+VK_TOKEN = "vk1.a.LZnqNzchEADk_n27uAHk6PlqhY0kDuvjBV3T321R-iBahhcKyvZ2-G4QgdNv62bI9WwgZxNSYzbc17kkNaUdbGAA6Q4Alpn1gxo8ZQitMotmFMEKZFB9Wcy_e0IhDIZJN6p3pFBBSPr7SmZ5SuFgPvkM0jLRVoSG3uEfBTUAk-HU4uAGoYM7nbgyjNrLOHpUkVGM5S6N6wSEvYd2TEDhvQ"
+VK_GROUP_ID = 209873316                    # id группы (без минуса)
+
+# -----------------------------------------------------------
+# ЛОГИ
+# -----------------------------------------------------------
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("molven")
+
+# -----------------------------------------------------------
+# КЛИЕНТЫ
+# -----------------------------------------------------------
+
+# Telegram
+tg_bot = TgBot(token=TG_TOKEN)
+
+# Discord
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ===================== VK =====================
+# VK
 vk_session = vk_api.VkApi(token=VK_TOKEN)
 vk = vk_session.get_api()
-vk_upload = VkUpload(vk_session)
 
-# ===================== Telegram =====================
-from aiogram import Bot, Dispatcher
-tg_bot = Bot(token=TG_TOKEN)
-dp = Dispatcher()
 
-# ===================== Функция публикации =====================
-async def post_to_services(text, image_urls=None):
-    # ---------- Telegram ----------
+# -----------------------------------------------------------
+# ФУНКЦИЯ ПУБЛИКАЦИИ
+# -----------------------------------------------------------
+
+async def post_to_services(text: str):
+    # Telegram
     try:
-        media = []
-        if image_urls:
-            for url in image_urls:
-                try:
-                    media.append(await tg_bot.send_photo(chat_id=TG_CHAT_ID, photo=url))
-                except Exception as e:
-                    print(f"TG photo error: {e}")
         await tg_bot.send_message(chat_id=TG_CHAT_ID, text=text)
+        log.info("Опубликовано в Telegram")
     except Exception as e:
-        print(f"TG error: {e}")
+        log.error(f"Ошибка Telegram: {e}")
 
-    # ---------- Discord ----------
+    # VK
     try:
-        channel = bot.get_channel(DISCORD_CHANNEL)
-        if channel:
-            if image_urls:
-                files = []
-                for url in image_urls:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(url) as resp:
-                            if resp.status == 200:
-                                data = await resp.read()
-                                files.append(discord.File(fp=io.BytesIO(data), filename="image.jpg"))
-                await channel.send(content=text, files=files)
-            else:
-                await channel.send(text)
+        vk.wall.post(owner_id=-VK_GROUP_ID, message=text, from_group=1)
+        log.info("Опубликовано в VK")
     except Exception as e:
-        print(f"Discord error: {e}")
+        log.error(f"Ошибка VK: {e}")
 
-    # ---------- VK ----------
-    try:
-        attachments = []
-        if image_urls:
-            for url in image_urls:
-                try:
-                    photo = vk_upload.photo_wall(photos=url, group_id=VK_GROUP_ID)
-                    attachments.append(f'photo{photo[0]["owner_id"]}_{photo[0]["id"]}')
-                except Exception as e:
-                    print(f"VK photo error: {e}")
-        vk.wall.post(owner_id=-VK_GROUP_ID, message=text, attachments=",".join(attachments) if attachments else None)
-    except Exception as e:
-        print(f"VK error: {e}")
 
-# ===================== Команда для Discord =====================
-@bot.tree.command(name="news", description="Опубликовать новость")
-async def news(interaction: discord.Interaction, text: str, image_urls: str = None):
-    image_list = image_urls.split(",") if image_urls else None
-    await post_to_services(text, image_list)
-    await interaction.response.send_message("✅", ephemeral=True)
+# -----------------------------------------------------------
+# SLASH-КОМАНДЫ
+# -----------------------------------------------------------
 
-# ===================== Запуск Telegram в фоне =====================
-def start_telegram():
-    asyncio.run(dp.start_polling(tg_bot, skip_updates=True))
+@bot.tree.command(name="news", description="Опубликовать новость в TG + VK + Discord")
+@app_commands.describe(text="Текст новости")
+async def news(interaction: discord.Interaction, text: str):
+    await interaction.response.send_message(f"Новость отправлена:\n{text}")
+    await post_to_services(text)
 
-threading.Thread(target=start_telegram, daemon=True).start()
 
-# ===================== Запуск Discord =====================
-bot.run(DISCORD_TOKEN)
+@bot.tree.command(name="text", description="Отправить сообщение только в этот канал Discord")
+@app_commands.describe(text="Сообщение для Discord")
+async def text(interaction: discord.Interaction, text: str):
+    # просто дублируем сообщение в канал, где вызвали
+    await interaction.response.send_message(text)
+
+
+# -----------------------------------------------------------
+# СТАРТ
+# -----------------------------------------------------------
+
+async def main():
+    async with tg_bot:
+        # синхронизируем команды для конкретного сервера, чтобы появлялись мгновенно
+        try:
+            guild = discord.Object(id=GUILD_ID)
+            await bot.tree.sync(guild=guild)
+            log.info("Slash-команды синхронизированы")
+        except Exception as e:
+            log.error(f"Ошибка синхронизации команд: {e}")
+        await bot.start(DISCORD_TOKEN)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
