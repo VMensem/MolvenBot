@@ -1,15 +1,17 @@
 # bot.py
 import os
-import threading
 import logging
+import threading
 import requests
-from flask import Flask
-
 import discord
 from discord import app_commands
 from discord.ext import commands
+from aiogram import Bot as TgBot
+from aiogram.enums import ParseMode
+import flask
 
-# ================== CONFIG ==================
+# ------------ НАСТРОЙКИ (подставь свои) ------------
+APPLICATION_ID = 1413607342775468174      # ID приложения/бота из DevPortal
 DISCORD_TOKEN = "MTQxMzYwNzM0Mjc3NTQ2ODE3NA.G9B618.UQaioB7Awaq4okHNxwEPDBb8lNKu5k5p2NglVk"
 GUILD_ID = 123456789012345678        # ID твоего сервера
 
@@ -18,81 +20,95 @@ TG_CHAT_ID = -1003091449025               # чат/канал для новос�
 
 VK_TOKEN = "vk1.a.LZnqNzchEADk_n27uAHk6PlqhY0kDuvjBV3T321R-iBahhcKyvZ2-G4QgdNv62bI9WwgZxNSYzbc17kkNaUdbGAA6Q4Alpn1gxo8ZQitMotmFMEKZFB9Wcy_e0IhDIZJN6p3pFBBSPr7SmZ5SuFgPvkM0jLRVoSG3uEfBTUAk-HU4uAGoYM7nbgyjNrLOHpUkVGM5S6N6wSEvYd2TEDhvQ"
 VK_GROUP_ID = 209873316  
-# =============================================
+# ----------------------------------------------------
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("molven")
 
-# ---------- Healthcheck для Render ----------
-app = Flask(__name__)
-@app.route("/")
-def index():
-    return "OK"
-
-def run_healthcheck():
-    app.run(host="0.0.0.0", port=5000)
-
-# ---------- Discord Bot ----------
+# Discord intents
 intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents)
+intents.message_content = True  # нужен, если хочешь видеть содержимое обычных сообщений
+
+# Создаём бота с application_id (исправляет ошибку sync)
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents,
+    application_id=APPLICATION_ID
+)
 tree = bot.tree
 
+# ------------------ ПОСТИНГ ------------------------
+def post_to_telegram(text: str):
+    try:
+        url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
+        r = requests.post(url, json={"chat_id": TG_CHAT_ID, "text": text, "parse_mode": "HTML"})
+        if not r.ok:
+            logger.error("TG error %s", r.text)
+    except Exception as e:
+        logger.exception("TG posting failed: %s", e)
 
-# ===== Служебные функции =====
-async def post_to_telegram(text: str):
-    """Отправка в Telegram"""
-    url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    r = requests.post(url, json={"chat_id": TG_CHAT_ID, "text": text})
-    if not r.ok:
-        logging.error("Telegram error: %s", r.text)
-
-async def post_to_vk(text: str):
-    """Пост на стену ВК"""
-    r = requests.post(
-        "https://api.vk.com/method/wall.post",
-        params={
-            "owner_id": -VK_GROUP_ID,
+def post_to_vk(text: str):
+    try:
+        url = "https://api.vk.com/method/wall.post"
+        payload = {
+            "owner_id": f"-{VK_GROUP_ID}",
+            "from_group": 1,
             "message": text,
             "access_token": VK_TOKEN,
-            "v": "5.131",
-        },
-    )
-    resp = r.json()
-    if "error" in resp:
-        logging.error("VK error: %s", resp)
+            "v": "5.199"
+        }
+        r = requests.post(url, data=payload).json()
+        if "error" in r:
+            logger.error("VK error %s", r)
+    except Exception as e:
+        logger.exception("VK posting failed: %s", e)
 
-async def post_everywhere(text: str):
-    """В TG и VK (Discord выводим самим командой)"""
-    await post_to_telegram(text)
-    await post_to_vk(text)
+async def post_to_discord_channel(text: str, interaction: discord.Interaction):
+    await interaction.channel.send(text)
 
+async def post_everywhere(text: str, interaction: discord.Interaction):
+    # Discord
+    await post_to_discord_channel(text, interaction)
+    # Telegram / VK
+    threading.Thread(target=lambda: post_to_telegram(text), daemon=True).start()
+    threading.Thread(target=lambda: post_to_vk(text), daemon=True).start()
 
-# ===== Slash-команды =====
-@tree.command(name="text", description="Просто отправить текст в этот канал")
-@app_commands.describe(message="Текст для публикации")
-async def text_cmd(interaction: discord.Interaction, message: str):
-    await interaction.response.send_message(message)
+# ---------------- SLASH-КОМАНДЫ --------------------
+@tree.command(name="text", description="Отправить текст в текущий канал")
+@app_commands.describe(content="Что отправить")
+async def text_cmd(interaction: discord.Interaction, content: str):
+    await interaction.response.send_message("Отправляю…", ephemeral=True)
+    await interaction.channel.send(content)
 
-@tree.command(name="news", description="Опубликовать новость в Discord + TG + VK")
-@app_commands.describe(message="Текст новости")
-async def news_cmd(interaction: discord.Interaction, message: str):
-    # Discord сразу отвечает в канал
-    await interaction.response.send_message(f"Новость: {message}")
-    # Телеграм + ВК
-    await post_everywhere(message)
+@tree.command(name="news", description="Постинг во все сервисы")
+@app_commands.describe(content="Текст новости")
+async def news_cmd(interaction: discord.Interaction, content: str):
+    await interaction.response.send_message("Публикую новость…", ephemeral=True)
+    await post_everywhere(content, interaction)
 
-
-# ===== События =====
+# --------------- ON_READY --------------------------
 @bot.event
 async def on_ready():
-    guild = discord.Object(id=GUILD_ID)
-    # Полная синхронизация команд
-    await tree.sync(guild=guild)
-    logging.info("Bot is online, commands synced for guild %s", GUILD_ID)
+    try:
+        guild = discord.Object(id=GUILD_ID)
+        await tree.sync(guild=guild)         # синхронизируем только для одного сервера
+        logger.info("Slash-команды синхронизированы для guild %s", GUILD_ID)
+    except Exception as e:
+        logger.exception("Ошибка синхронизации команд: %s", e)
+    logger.info("Бот вошёл как %s", bot.user)
 
+# ----------------- FLASK HEALTH --------------------
+app = flask.Flask(__name__)
 
-# ===== main =====
+@app.route("/")
+def health():
+    return "OK"
+
+def run_flask():
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
+# ------------------- MAIN --------------------------
 if __name__ == "__main__":
-    # Запускаем health-сервер, чтобы Render видел порт
-    threading.Thread(target=run_healthcheck, daemon=True).start()
-
+    threading.Thread(target=run_flask, daemon=True).start()
     bot.run(DISCORD_TOKEN)
