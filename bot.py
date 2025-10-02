@@ -8,16 +8,19 @@ from aiogram.types import InputFile
 import logging
 
 # ---------------- CONFIG ---------------- #
-DISCORD_TOKEN = "MTQxMzYwNzM0Mjc3NTQ2ODE3NA.G9B618.UQaioB7Awaq4okHNxwEPDBb8lNKu5k5p2NglVk"
-GUILD_ID = 1413563581592764500
-DISCORD_CHANNEL_ID = 1413563583966613588
-ALLOWED_USERS = [741774083355836478]  # сюда ID админов
+# Discord
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", 0))
+DISCORD_CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID", 0))
+ALLOWED_USERS = list(map(int, os.getenv("DISCORD_ALLOWED_USERS", "").split(",")))
 
-TG_TOKEN = "8462639289:AAGKFtkNIEzdd_-48_MjelPcdr97GJgtGno"
-TG_CHAT_ID = -1003091449025
+# Telegram
+TG_TOKEN = os.getenv("TG_TOKEN")
+TG_CHAT_ID = int(os.getenv("TG_CHAT_ID", 0))
 
-VK_TOKEN = "vk1.a.LZnqNzchEADk_n27uAHk6PlqhY0kDuvjBV3T321R-iBahhcKyvZ2-G4QgdNv62bI9WwgZxNSYzbc17kkNaUdbGAA6Q4Alpn1gxo8ZQitMotmFMEKZFB9Wcy_e0IhDIZJN6p3pFBBSPr7SmZ5SuFgPvkM0jLRVoSG3uEfBTUAk-HU4uAGoYM7nbgyjNrLOHpUkVGM5S6N6wSEvYd2TEDhvQ"
-VK_GROUP_ID = 209873316
+# VK
+VK_TOKEN = os.getenv("VK_TOKEN")
+VK_GROUP_ID = int(os.getenv("VK_GROUP_ID", 0))
 
 # ---------------- LOGGING ---------------- #
 logging.basicConfig(level=logging.INFO)
