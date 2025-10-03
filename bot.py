@@ -10,17 +10,14 @@ import logging
 import os
 
 # ---------------- CONFIG ---------------- #
-# Discord
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", 0))
 DISCORD_CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID", 0))
 ALLOWED_USERS = list(map(int, os.getenv("DISCORD_ALLOWED_USERS", "").split(",")))
 
-# Telegram
 TG_TOKEN = os.getenv("TG_TOKEN")
 TG_CHAT_ID = int(os.getenv("TG_CHAT_ID", 0))
 
-# VK
 VK_TOKEN = os.getenv("VK_TOKEN")
 VK_GROUP_ID = int(os.getenv("VK_GROUP_ID", 0))
 
@@ -52,12 +49,10 @@ def send_to_vk(text: str):
 # ---------------- DISCORD ---------------- #
 intents = discord.Intents.default()
 intents.message_content = True
-
 bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
 
 async def post_to_services(text: str):
-    # Отправка во все сервисы
     await send_to_telegram(text)
     send_to_vk(text)
     channel = bot.get_channel(DISCORD_CHANNEL_ID)
@@ -66,26 +61,29 @@ async def post_to_services(text: str):
     else:
         logger.error("Канал Discord не найден!")
 
-# ---------------- DISCORD COMMANDS ---------------- #
-@tree.command(name="news", description="Опубликовать новость на всех сервисах")
+# ---------------- COMMANDS ---------------- #
+@tree.command(name="news", description="Опубликовать новость ВК/ТГ/ДС")
 async def news(interaction: discord.Interaction, text: str):
     if interaction.user.id not in ALLOWED_USERS:
         await interaction.response.send_message("У тебя нет прав для публикации!", ephemeral=True)
         return
-    await post_to_services(text)
-    await interaction.response.send_message("Новость опубликована!", ephemeral=True)
 
-@tree.command(name="text", description="Отправить текст в канал Discord")
+    # Ответ сразу, чтобы interaction не таймаутился
+    await interaction.response.send_message("Публикуем новость...", ephemeral=True)
+
+    try:
+        await post_to_services(text)
+    except Exception as e:
+        logger.error(f"Ошибка при публикации новости: {e}")
+
+@tree.command(name="text", description="Отправить текст в чат")
 async def text_cmd(interaction: discord.Interaction, text: str):
     if interaction.user.id not in ALLOWED_USERS:
         await interaction.response.send_message("У тебя нет прав для отправки текста!", ephemeral=True)
         return
-    channel = bot.get_channel(DISCORD_CHANNEL_ID)
-    if channel:
-        await channel.send(text)
-        await interaction.response.send_message("Текст отправлен!", ephemeral=True)
-    else:
-        await interaction.response.send_message("Канал Discord не найден!", ephemeral=True)
+
+    await interaction.channel.send(text)
+    await interaction.response.send_message("Текст отправлен!", ephemeral=True)
 
 @bot.event
 async def on_ready():
@@ -94,7 +92,7 @@ async def on_ready():
     await tree.sync(guild=guild)
     logger.info("Команды синхронизированы!")
 
-# ---------------- MAIN RUN ---------------- #
+# ---------------- RUN DISCORD ---------------- #
 async def discord_runner():
     await bot.start(DISCORD_TOKEN)
 
@@ -116,5 +114,5 @@ def run_flask():
 if __name__ == "__main__":
     # Flask в отдельном потоке
     threading.Thread(target=run_flask).start()
-    # Discord в главном
+    # Discord в главном потоке
     start_asyncio_loop()
