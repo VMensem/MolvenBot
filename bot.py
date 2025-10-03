@@ -100,7 +100,11 @@ async def start_telegram():
     await tg_dp.start_polling()
 
 async def runner():
-    await asyncio.gather(main(), start_telegram())
+    await asyncio.gather(
+        main(),          # Discord бот
+        start_telegram() # Telegram бот
+    )
+
 
 if __name__ == "__main__":
     asyncio.run(runner())
