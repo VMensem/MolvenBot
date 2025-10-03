@@ -1,10 +1,11 @@
+from flask import Flask
+import threading
 import discord
 from discord import app_commands
 from discord.ext import commands
 import asyncio
 import vk_api
-from aiogram import Bot, Dispatcher
-from aiogram.types import InputFile
+from aiogram import Bot
 import logging
 import os
 
@@ -29,11 +30,11 @@ logger = logging.getLogger("molven")
 
 # ---------------- TELEGRAM ---------------- #
 tg_bot = Bot(token=TG_TOKEN)
-tg_dp = Dispatcher()
 
-async def send_to_telegram(text):
+async def send_to_telegram(text: str):
     try:
         await tg_bot.send_message(TG_CHAT_ID, text)
+        logger.info("Сообщение отправлено в Telegram")
     except Exception as e:
         logger.error(f"Ошибка отправки в Telegram: {e}")
 
@@ -41,9 +42,10 @@ async def send_to_telegram(text):
 vk_session = vk_api.VkApi(token=VK_TOKEN)
 vk = vk_session.get_api()
 
-def send_to_vk(text):
+def send_to_vk(text: str):
     try:
         vk.wall.post(owner_id=-VK_GROUP_ID, message=text)
+        logger.info("Сообщение опубликовано в VK")
     except Exception as e:
         logger.error(f"Ошибка отправки в VK: {e}")
 
@@ -54,7 +56,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
 
-async def post_to_services(text):
+async def post_to_services(text: str):
     # Отправка во все сервисы
     await send_to_telegram(text)
     send_to_vk(text)
@@ -92,19 +94,27 @@ async def on_ready():
     await tree.sync(guild=guild)
     logger.info("Команды синхронизированы!")
 
-# ---------------- RUN ---------------- #
-async def main():
+# ---------------- MAIN RUN ---------------- #
+async def discord_runner():
     await bot.start(DISCORD_TOKEN)
 
-async def start_telegram():
-    await tg_dp.start_polling()
+def start_asyncio_loop():
+    asyncio.run(discord_runner())
 
-async def runner():
-    await asyncio.gather(
-        main(),          # Discord бот
-        start_telegram() # Telegram бот
-    )
+# ---------------- FLASK ---------------- #
+app = Flask(__name__)
 
+@app.route("/")
+def home():
+    return "Бот работает!"
 
+def run_flask():
+    port = int(os.getenv("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+# ---------------- START ---------------- #
 if __name__ == "__main__":
-    asyncio.run(runner())
+    # Flask в отдельном потоке
+    threading.Thread(target=run_flask).start()
+    # Discord в главном
+    start_asyncio_loop()
