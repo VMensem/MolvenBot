@@ -6,6 +6,7 @@ import vk_api
 from aiogram import Bot, Dispatcher
 from aiogram.types import InputFile
 import logging
+import os
 
 # ---------------- CONFIG ---------------- #
 # Discord
